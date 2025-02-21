@@ -22,7 +22,7 @@ jobs:
       - name: Login to Azure
         run: |
           az login --service-principal -u ${{ secrets.AZURE_APP_ID }} -p ${{ secrets.AZURE_PASSWORD }} --tenant ${{ secrets.AZURE_TENANT_ID }}
-
+          
       - name: List repositories in ACR
         run: |
           az acr repository list --name ${{ secrets.AZURE_ACR_NAME }} --output tsv > acr_repositories.txt
@@ -32,13 +32,16 @@ jobs:
           while read repository; do
             echo "Cleaning up repository: $repository"
             az acr repository show-tags --name ${{ secrets.AZURE_ACR_NAME }} --repository $repository --orderby time_desc --output tsv > acr_tags.txt
-
-            # Keep only the first 3 images and delete the rest
-            count=0
-            for tag in $(tail -n +4 acr_tags.txt); do
-              echo "Deleting image with tag $tag from repository $repository"
-              az acr repository delete --name ${{ secrets.AZURE_ACR_NAME }} --image $repository:$tag --yes
-              count=$((count+1))
-            done
-            echo "$count images deleted from repository $repository"
+            if [ -s acr_tags.txt ]; then
+              # Keep only the first 3 images and delete the rest
+              count=0
+              for tag in $(tail -n +4 acr_tags.txt); do
+                echo "Deleting image with tag $tag from repository $repository"
+                az acr repository delete --name ${{ secrets.AZURE_ACR_NAME }} --image $repository:$tag --yes
+                count=$((count+1))
+              done
+              echo "$count images deleted from repository $repository"
+            else
+              echo "No tags found for repository $repository"
+            fi
           done < acr_repositories.txt
