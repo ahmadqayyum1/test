@@ -29,35 +29,37 @@ jobs:
           # Get the resource group dynamically (optional: use filters if needed)
           resourceGroup=$(az group list --query "[0].name" -o tsv)
           echo "Resource Group: $resourceGroup"
-          echo "::set-output name=resourceGroup::$resourceGroup"
+          echo "resourceGroup=$resourceGroup" >> $GITHUB_ENV  # Set environment variable
 
       - name: Get ACR name dynamically
         id: getacrname
         run: |
           # Get the ACR name using the dynamically fetched resource group
-          acrName=$(az acr list --resource-group ${{ steps.getresourcegroup.outputs.resourceGroup }} --query "[0].name" -o tsv)
+          acrName=$(az acr list --resource-group ${{ env.resourceGroup }} --query "[0].name" -o tsv)
           echo "ACR Name: $acrName"
-          echo "::set-output name=acrName::$acrName"
+          echo "acrName=$acrName" >> $GITHUB_ENV  # Set environment variable
 
       - name: Login to Azure Container Registry
         run: |
-          az acr login --name ${{ steps.getacrname.outputs.acrName }}
+          az acr login --name ${{ env.acrName }}
 
       - name: Get all repositories in ACR
         id: get_repos
         run: |
-          repos=$(az acr repository list --name ${{ steps.getacrname.outputs.acrName }} --output tsv)
+          repos=$(az acr repository list --name ${{ env.acrName }} --output tsv)
           echo "Repositories found: $repos"
-          echo "::set-output name=repos::$repos"
+          echo "repos=$repos" >> $GITHUB_ENV  # Set environment variable
 
       - name: Purge old images from all ACR repositories
         run: |
-          repos="${{ steps.get_repos.outputs.repos }}"
+          repos="${{ env.repos }}"
           IFS=' ' read -r -a repo_array <<< "$repos"  # Convert space-separated repos into an array
           for repo in "${repo_array[@]}"; do
             echo "Purging old images in repository: $repo"
-            az acr repository show-tags --name ${{ steps.getacrname.outputs.acrName }} --repository "$repo" --output tsv | while read tag; do
+            # Get all tags for the repository
+            tags=$(az acr repository show-tags --name ${{ env.acrName }} --repository "$repo" --output tsv)
+            for tag in $tags; do
               echo "Purging tag $tag from $repo"
-              az acr repository delete --name ${{ steps.getacrname.outputs.acrName }} --repository "$repo" --tag "$tag" --yes
+              az acr repository delete --name ${{ env.acrName }} --image "$repo:$tag" --yes
             done
           done
