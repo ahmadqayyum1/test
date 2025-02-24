@@ -23,52 +23,32 @@ jobs:
         run: |
           az login --service-principal -u ${{ secrets.AZURE_APP_ID }} -p ${{ secrets.AZURE_PASSWORD }} --tenant ${{ secrets.AZURE_TENANT_ID }}
 
-      - name: Get Resource Group Name dynamically
-        id: getresourcegroup
+      - name: List repositories in ACR
+        id: list_repos
         run: |
-          resourceGroup=$(az group list --query "[0].name" -o tsv)
-          echo "Resource Group: $resourceGroup"
-          echo "resourceGroup=$resourceGroup" >> $GITHUB_ENV
+          az acr repository list --name <your_acr_name> --output tsv > repositories.txt
 
-      - name: Get ACR name dynamically
-        id: getacrname
+      - name: Clean up repositories
         run: |
-          acrName=$(az acr list --resource-group ${{ env.resourceGroup }} --query "[0].name" -o tsv)
-          echo "ACR Name: $acrName"
-          echo "acrName=$acrName" >> $GITHUB_ENV
-
-      - name: Login to Azure Container Registry
-        run: |
-          az acr login --name ${{ env.acrName }}
-
-      - name: Get all repositories in ACR
-        id: get_repos
-        run: |
-          repos=$(az acr repository list --name ${{ env.acrName }} --output tsv)
-          echo "Repositories found: $repos"
-          # Base64 encode the list of repositories to handle spaces
-          repos_base64=$(echo "$repos" | base64)
-          echo "repos_base64=$repos_base64" >> $GITHUB_ENV  # Store as base64-encoded value
-
-      - name: Purge old images from all ACR repositories
-        run: |
-          # Decode the base64-encoded repos string
-          repos=$(echo "${{ env.repos_base64 }}" | base64 --decode)
-          
-          # Loop through the repositories
-          for repo in $repos; do
-            echo "Purging old images in repository: $repo"
-            # Get all tags for the repository
-            tags=$(az acr repository show-tags --name ${{ env.acrName }} --repository "$repo" --output tsv)
+          # Loop through each repository in the ACR
+          while read repo; do
+            echo "Processing repository: $repo"
             
-            # Ensure tags exist before attempting deletion
-            if [ -n "$tags" ]; then
-              for tag in $tags; do
-                echo "Purging tag $tag from $repo"
-                # Delete the image (tag) without deleting the whole repository
-                az acr repository delete --name ${{ env.acrName }} --image "$repo:$tag" --yes
+            # Get all images in the repo, sorted by creation time (or tag)
+            images=$(az acr repository show-tags --name <your_acr_name> --repository $repo --output tsv --orderby time_desc)
+            
+            # Get the total number of images
+            image_count=$(echo "$images" | wc -l)
+            
+            if [ $image_count -gt 3 ]; then
+              # If more than 3 images, delete the excess ones (skip first 3)
+              excess_images=$(echo "$images" | tail -n +4)
+              
+              for image in $excess_images; do
+                echo "Deleting image: $image from repo: $repo"
+                az acr repository delete --name <your_acr_name> --repository $repo --tag $image --yes
               done
             else
-              echo "No tags found for repository: $repo"
+              echo "Skipping repository $repo as it has 3 or fewer images."
             fi
-          done
+          done < repositories.txt
