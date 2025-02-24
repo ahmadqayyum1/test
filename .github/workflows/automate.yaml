@@ -23,10 +23,18 @@ jobs:
         run: |
           az login --service-principal -u ${{ secrets.AZURE_APP_ID }} -p ${{ secrets.AZURE_PASSWORD }} --tenant ${{ secrets.AZURE_TENANT_ID }}
 
+      - name: Get ACR Name
+        id: get_acr_name
+        run: |
+          # Retrieve the ACR name automatically (you can fetch it from your subscription if needed)
+          ACR_NAME=$(az acr list --query "[0].name" -o tsv)
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+
       - name: List repositories in ACR
         id: list_repos
         run: |
-          az acr repository list --name <your_acr_name> --output tsv > repositories.txt
+          # List all repositories in the automatically detected ACR
+          az acr repository list --name ${{ env.ACR_NAME }} --output tsv > repositories.txt
 
       - name: Clean up repositories
         run: |
@@ -35,7 +43,7 @@ jobs:
             echo "Processing repository: $repo"
             
             # Get all images in the repo, sorted by creation time (or tag)
-            images=$(az acr repository show-tags --name <your_acr_name> --repository $repo --output tsv --orderby time_desc)
+            images=$(az acr repository show-tags --name ${{ env.ACR_NAME }} --repository $repo --output tsv --orderby time_desc)
             
             # Get the total number of images
             image_count=$(echo "$images" | wc -l)
@@ -46,7 +54,7 @@ jobs:
               
               for image in $excess_images; do
                 echo "Deleting image: $image from repo: $repo"
-                az acr repository delete --name <your_acr_name> --repository $repo --tag $image --yes
+                az acr repository delete --name ${{ env.ACR_NAME }} --repository $repo --tag $image --yes
               done
             else
               echo "Skipping repository $repo as it has 3 or fewer images."
