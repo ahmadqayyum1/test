@@ -23,14 +23,25 @@ jobs:
         run: |
           az login --service-principal -u ${{ secrets.AZURE_APP_ID }} -p ${{ secrets.AZURE_PASSWORD }} --tenant ${{ secrets.AZURE_TENANT_ID }}
 
-      - name: Get ACR name
+      - name: Get Resource Group Name dynamically
+        id: getresourcegroup
+        run: |
+          # Get the resource group dynamically (optional: use filters if needed)
+          resourceGroup=$(az group list --query "[0].name" -o tsv)
+          echo "Resource Group: $resourceGroup"
+          echo "::set-output name=resourceGroup::$resourceGroup"
+
+      - name: Get ACR name dynamically
         id: getacrname
         run: |
-          acrName=$(az acr list --resource-group ${{ secrets.AZURE_RG_NAME_DEV }} --query "[0].name" -o tsv)
+          # Get the ACR name using the dynamically fetched resource group
+          acrName=$(az acr list --resource-group ${{ steps.getresourcegroup.outputs.resourceGroup }} --query "[0].name" -o tsv)
+          echo "ACR Name: $acrName"
           echo "::set-output name=acrName::$acrName"
 
       - name: Login to Azure Container Registry
-        run: az acr login --name ${{ steps.getacrname.outputs.acrName }}
+        run: |
+          az acr login --name ${{ steps.getacrname.outputs.acrName }}
 
       - name: Get all repositories in ACR
         id: get_repos
