@@ -1,74 +1,46 @@
-name: Purge Old Container Images from ACR
+name: Clean ACR Images
 
 on:
-  push:
-    branches:
-      - main  
-  workflow_dispatch:  # Allows manual triggering
-
-permissions:
-  contents: read
-  id-token: write
-  pull-requests: write
+  schedule:
+    - cron: '0 0 * * *' # Runs once a day at midnight; adjust as needed
+  workflow_dispatch: # Allows manual triggering
 
 jobs:
-  purge:
+  clean-acr:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository code
-        uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v3
 
-      - name: Login to Azure (Service Principal)
-        run: |
-          az login --service-principal -u ${{ secrets.AZURE_APP_ID }} -p ${{ secrets.AZURE_PASSWORD }} --tenant ${{ secrets.AZURE_TENANT_ID }}
+      - name: Set up Azure CLI
+        uses: azure/setup-azurecli@v1
 
-      - name: Get Resource Group Name dynamically
-        id: getresourcegroup
+      - name: Azure login
         run: |
-          resourceGroup=$(az group list --query "[0].name" -o tsv)
-          echo "Resource Group: $resourceGroup"
-          echo "resourceGroup=$resourceGroup" >> $GITHUB_ENV
+          az login --service-principal -u ${{ secrets.AZURE_APP_ID }} -p ${{ secrets.AZURE_APP_PASSWORD }} --tenant ${{ secrets.AZURE_TENANT_ID }}
 
-      - name: Get ACR name dynamically
-        id: getacrname
+      - name: List repositories in ACR
         run: |
-          acrName=$(az acr list --resource-group ${{ env.resourceGroup }} --query "[0].name" -o tsv)
-          echo "ACR Name: $acrName"
-          echo "acrName=$acrName" >> $GITHUB_ENV
-
-      - name: Login to Azure Container Registry
+          acr_name="your-acr-name" # Replace with your ACR name
+          repositories=$(az acr repository list --name $acr_name --output tsv)
+          echo "Repositories in ACR: $repositories"
+        
+      - name: Clean images in Nginx and Redis repositories
         run: |
-          az acr login --name ${{ env.acrName }}
-
-      - name: Get all repositories in ACR
-        id: get_repos
-        run: |
-          repos=$(az acr repository list --name ${{ env.acrName }} --output tsv)
-          echo "Repositories found: $repos"
-          # Base64 encode the list of repositories to handle spaces
-          repos_base64=$(echo "$repos" | base64)
-          echo "repos_base64=$repos_base64" >> $GITHUB_ENV  # Store as base64-encoded value
-
-      - name: Purge old images from all ACR repositories
-        run: |
-          # Decode the base64-encoded repos string
-          repos=$(echo "${{ env.repos_base64 }}" | base64 --decode)
+          acr_name="your-acr-name" # Replace with your ACR name
           
-          # Loop through the repositories
-          for repo in $repos; do
-            echo "Purging old images in repository: $repo"
-            # Get all tags for the repository
-            tags=$(az acr repository show-tags --name ${{ env.acrName }} --repository "$repo" --output tsv)
-            
-            # Ensure tags exist before attempting deletion
-            if [ -n "$tags" ]; then
-              for tag in $tags; do
-                echo "Purging tag $tag from $repo"
-                # Delete the image (tag) without deleting the whole repository
-                az acr repository delete --name ${{ env.acrName }} --image "$repo:$tag" --yes --no-wait
-              done
-            else
-              echo "No tags found for repository: $repo"
-            fi
-          done
+          # Function to delete images except the first 3
+          delete_images () {
+            repo_name=$1
+            images=$(az acr repository show-tags --name $acr_name --repository $repo_name --output tsv | sort -r)
+            # Keep the first 3 images
+            images_to_delete=$(echo "$images" | tail -n +4)  # Skips the first 3 images
+            for image in $images_to_delete; do
+              echo "Deleting image: $image from $repo_name"
+              az acr repository delete --name $acr_name --repository $repo_name --tag $image --yes
+            done
+          }
+
+          # Clean images for Nginx and Redis repositories
+          delete_images "nginx"
+          delete_images "redis"
