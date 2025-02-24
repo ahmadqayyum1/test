@@ -48,13 +48,13 @@ jobs:
         run: |
           repos=$(az acr repository list --name ${{ env.acrName }} --output tsv)
           echo "Repositories found: $repos"
-          echo "repos=$repos" >> $GITHUB_ENV  # Set environment variable
+          # Convert repos to array format
+          echo "repos=($repos)" >> $GITHUB_ENV  # Set array in GITHUB_ENV
 
       - name: Purge old images from all ACR repositories
         run: |
-          repos="${{ env.repos }}"
-          IFS=' ' read -r -a repo_array <<< "$repos"  # Convert space-separated repos into an array
-          for repo in "${repo_array[@]}"; do
+          # Loop through the repositories array
+          for repo in "${{ env.repos[@] }}"; do
             echo "Purging old images in repository: $repo"
             # Get all tags for the repository
             tags=$(az acr repository show-tags --name ${{ env.acrName }} --repository "$repo" --output tsv)
