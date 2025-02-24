@@ -1,50 +1,56 @@
 name: Purge Old Container Images from ACR
 
 on:
-    push:
-        branches:
-            - main  
-    workflow_dispatch:  # Allows manual triggering
+  push:
+    branches:
+      - main  
+  workflow_dispatch:  # Allows manual triggering
 
 permissions:
-    contents: read
-    id-token: write
-    pull-requests: write
+  contents: read
+  id-token: write
+  pull-requests: write
 
 jobs:
-    purge:
-        runs-on: ubuntu-latest
+  purge:
+    runs-on: ubuntu-latest
 
-        steps:
-            - name: Checkout repository code
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
 
-            - name: Azure login
-              uses: azure/login@v2
-              with:
-                client-id: ${{ secrets.AZURE_APP_ID }}
-                tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-                subscription-id: ${{ secrets.AZURE_PASSWORD }}
+      - name: Azure login (using OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_APP_ID }}  # Optional: Only needed if not using OIDC
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}  # Optional: Only needed if not using OIDC
+          subscription-id: ${{ secrets.AZURE_PASSWORD }}  # Optional: Only needed if not using OIDC
+          enable-AzPSSession: false
+          environment: azurecloud
+          auth-type: SERVICE_PRINCIPAL
+          allow-no-subscriptions: false
+          audience: api://AzureADTokenExchange  # Ensure this is set for OIDC-based login
+          # If OIDC setup is correct, this would allow login automatically
 
-            - name: Get ACR name
-              id: getacrname
-              run: |
-                  acrName=$(az acr list --resource-group ${{ secrets.AZURE_RG_NAME_DEV }} --query "[0].name" -o tsv)
-                  echo "::set-output name=acrName::$acrName"
+      - name: Get ACR name
+        id: getacrname
+        run: |
+          acrName=$(az acr list --resource-group ${{ secrets.AZURE_RG_NAME_DEV }} --query "[0].name" -o tsv)
+          echo "::set-output name=acrName::$acrName"
 
-            - name: Login to Azure Container Registry
-              run: az acr login --name ${{ steps.getacrname.outputs.acrName }}
+      - name: Login to Azure Container Registry
+        run: az acr login --name ${{ steps.getacrname.outputs.acrName }}
 
-            - name: Get all repositories in ACR
-              id: get_repos
-              run: |
-                repos=$(az acr repository list --name ${{ steps.getacrname.outputs.acrName }} --output tsv)
-                echo "Repositories found: $repos"
-                echo "::set-output name=repos::$repos"
+      - name: Get all repositories in ACR
+        id: get_repos
+        run: |
+          repos=$(az acr repository list --name ${{ steps.getacrname.outputs.acrName }} --output tsv)
+          echo "Repositories found: $repos"
+          echo "::set-output name=repos::$repos"
 
-            - name: Purge old images from all ACR repositories
-              run: |
-                for repo in ${{ steps.get_repos.outputs.repos }}; do
-                  echo "Purging old images in repository: $repo"
-                  az acr run --registry ${{ steps.getacrname.outputs.acrName }} --cmd "acr purge --filter '$repo:.*' --ago 0d --keep 3 --untagged" /dev/null
-                done
+      - name: Purge old images from all ACR repositories
+        run: |
+          for repo in ${{ steps.get_repos.outputs.repos }}; do
+            echo "Purging old images in repository: $repo"
+            az acr run --registry ${{ steps.getacrname.outputs.acrName }} --cmd "acr purge --filter '$repo:.*' --ago 0d --keep 3 --untagged" /dev/null
+          done
