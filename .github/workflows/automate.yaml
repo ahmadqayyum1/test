@@ -41,20 +41,20 @@ jobs:
           # Loop through each repository in the ACR
           while read repo; do
             echo "Processing repository: $repo"
-            
+    
             # Get all images in the repo, sorted by creation time (or tag)
             images=$(az acr repository show-tags --name ${{ env.ACR_NAME }} --repository $repo --output tsv --orderby time_desc)
-            
+    
             # Get the total number of images
             image_count=$(echo "$images" | wc -l)
-            
+    
             if [ $image_count -gt 3 ]; then
               # If more than 3 images, delete the excess ones (skip first 3)
               excess_images=$(echo "$images" | tail -n +4)
-              
+    
               for image in $excess_images; do
                 echo "Deleting image: $image from repo: $repo"
-                az acr repository delete --name ${{ env.ACR_NAME }} --repository $repo --tag $image --yes
+                az acr repository delete --name ${{ env.ACR_NAME }} --image $repo:$image --yes
               done
             else
               echo "Skipping repository $repo as it has 3 or fewer images."
