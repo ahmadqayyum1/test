@@ -1,8 +1,9 @@
 name: Clean ACR Images
 
 on:
-  schedule:
-    - cron: '0 0 * * *' # Runs once a day at midnight; adjust as needed
+  push:
+    branches:
+      - main  
   workflow_dispatch: # Allows manual triggering
 
 jobs:
