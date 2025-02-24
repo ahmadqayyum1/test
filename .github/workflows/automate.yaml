@@ -60,8 +60,15 @@ jobs:
             echo "Purging old images in repository: $repo"
             # Get all tags for the repository
             tags=$(az acr repository show-tags --name ${{ env.acrName }} --repository "$repo" --output tsv)
-            for tag in $tags; do
-              echo "Purging tag $tag from $repo"
-              az acr repository delete --name ${{ env.acrName }} --image "$repo:$tag" --yes
-            done
+            
+            # Ensure tags exist before attempting deletion
+            if [ -n "$tags" ]; then
+              for tag in $tags; do
+                echo "Purging tag $tag from $repo"
+                # Delete the image (tag) without deleting the whole repository
+                az acr repository delete --name ${{ env.acrName }} --image "$repo:$tag" --yes --no-wait
+              done
+            else
+              echo "No tags found for repository: $repo"
+            fi
           done
