@@ -24,14 +24,13 @@ jobs:
           az login --service-principal -u ${{ secrets.AZURE_APP_ID }} -p ${{ secrets.AZURE_PASSWORD }} --tenant ${{ secrets.AZURE_TENANT_ID }}
       
       - name: Get ACR name
-        id: getacrname
         run: |
           acrName=$(az acr list --resource-group ${{ secrets.AZURE_RG_NAME_DEV }} --query "[0].name" -o tsv)
-          echo "::set-output name=acrName::$acrName"    
+          echo "acrName=$acrName" >> $GITHUB_ENV  
 
       - name: Login to Azure Container Registry
-        run: az acr login --name ${{ steps.getacrname.outputs.acrName }}
+        run: az acr login --name ${{ env.acrName }}
 
       - name: Purge old images from ACR            
         run: |
-          az acr run --registry ${{ steps.getacrname.outputs.acrName }} --cmd "acr purge --filter '*:.*' --ago 0d --keep 3 --untagged" /dev/null
+          az acr run --registry ${{ env.acrName }} --cmd "acr purge --filter '*:.*' --ago 0d --keep 3 --untagged" /dev/null
