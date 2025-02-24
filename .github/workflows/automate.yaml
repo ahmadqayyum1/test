@@ -3,7 +3,7 @@ name: Purge Old Container Images from ACR
 on:
     push:
         branches:
-            - main  # Runs only when code is pushed to the main branch
+            - main  
     workflow_dispatch:  # Allows manual triggering
 
 permissions:
