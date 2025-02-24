@@ -1,49 +1,50 @@
-name: Clean up ACR
+name: Purge Old Container Images from ACR
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+    push:
+        branches:
+            - main  # Runs only when code is pushed to the main branch
+    workflow_dispatch:  # Allows manual triggering
+
+permissions:
+    contents: read
+    id-token: write
+    pull-requests: write
 
 jobs:
-  cleanup:
-    runs-on: ubuntu-latest
+    purge:
+        runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+        steps:
+            - name: Checkout repository code
+              uses: actions/checkout@v4
 
-      - name: Install Azure CLI
-        run: |
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+            - name: Azure login
+              uses: azure/login@v2
+              with:
+                client-id: ${{ secrets.AZURE_APP_ID }}
+                tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+                subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to Azure
-        run: |
-          az login --service-principal -u ${{ secrets.AZURE_APP_ID }} -p ${{ secrets.AZURE_PASSWORD }} --tenant ${{ secrets.AZURE_TENANT_ID }}
+            - name: Get ACR name
+              id: getacrname
+              run: |
+                  acrName=$(az acr list --resource-group ${{ secrets.AZURE_RG_NAME_DEV }} --query "[0].name" -o tsv)
+                  echo "::set-output name=acrName::$acrName"
 
-      - name: List repositories in ACR
-        run: |
-          az acr repository list --name ${{ secrets.AZURE_ACR_NAME }} --output tsv > acr_repositories.txt
+            - name: Login to Azure Container Registry
+              run: az acr login --name ${{ steps.getacrname.outputs.acrName }}
 
-      - name: List and clean up images in each repository
-        run: |
-          while read repository; do
-            echo "Cleaning up repository: $repository"
-            az acr repository show-tags --name ${{ secrets.AZURE_ACR_NAME }} --repository $repository --orderby time_desc --output tsv > acr_tags.txt
-            
-            if [ -s acr_tags.txt ]; then
-              # Keep the first 3 images (most recent)
-              tags_to_keep=$(head -n 3 acr_tags.txt)
-              
-              # Get the list of tags to delete
-              tags_to_delete=$(tail -n +4 acr_tags.txt)
-              
-              for tag in $tags_to_delete; do
-                echo "Deleting image with tag $tag from repository $repository"
-                az acr repository delete --name ${{ secrets.AZURE_ACR_NAME }} --image "$repository:$tag" --yes --manifest false
-              done
-            else
-              echo "No tags found for repository $repository"
-            fi
-          done < acr_repositories.txt
+            - name: Get all repositories in ACR
+              id: get_repos
+              run: |
+                repos=$(az acr repository list --name ${{ steps.getacrname.outputs.acrName }} --output tsv)
+                echo "Repositories found: $repos"
+                echo "::set-output name=repos::$repos"
+
+            - name: Purge old images from all ACR repositories
+              run: |
+                for repo in ${{ steps.get_repos.outputs.repos }}; do
+                  echo "Purging old images in repository: $repo"
+                  az acr run --registry ${{ steps.getacrname.outputs.acrName }} --cmd "acr purge --filter '$repo:.*' --ago 0d --keep 3 --untagged" /dev/null
+                done
