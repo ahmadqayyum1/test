@@ -52,8 +52,12 @@ jobs:
 
       - name: Purge old images from all ACR repositories
         run: |
-          repos=$(echo "${{ steps.get_repos.outputs.repos }}" | tr ' ' '\n')  # Convert space-separated list to newlines
-          for repo in $repos; do
+          repos="${{ steps.get_repos.outputs.repos }}"
+          IFS=' ' read -r -a repo_array <<< "$repos"  # Convert space-separated repos into an array
+          for repo in "${repo_array[@]}"; do
             echo "Purging old images in repository: $repo"
-            az acr run --registry ${{ steps.getacrname.outputs.acrName }} --cmd "acr purge --filter '$repo:.*' --ago 0d --keep 3 --untagged" /dev/null
+            az acr repository show-tags --name ${{ steps.getacrname.outputs.acrName }} --repository "$repo" --output tsv | while read tag; do
+              echo "Purging tag $tag from $repo"
+              az acr repository delete --name ${{ steps.getacrname.outputs.acrName }} --repository "$repo" --tag "$tag" --yes
+            done
           done
