@@ -26,18 +26,16 @@ jobs:
       - name: Get Resource Group Name dynamically
         id: getresourcegroup
         run: |
-          # Get the resource group dynamically (optional: use filters if needed)
           resourceGroup=$(az group list --query "[0].name" -o tsv)
           echo "Resource Group: $resourceGroup"
-          echo "resourceGroup=$resourceGroup" >> $GITHUB_ENV  # Set environment variable
+          echo "resourceGroup=$resourceGroup" >> $GITHUB_ENV
 
       - name: Get ACR name dynamically
         id: getacrname
         run: |
-          # Get the ACR name using the dynamically fetched resource group
           acrName=$(az acr list --resource-group ${{ env.resourceGroup }} --query "[0].name" -o tsv)
           echo "ACR Name: $acrName"
-          echo "acrName=$acrName" >> $GITHUB_ENV  # Set environment variable
+          echo "acrName=$acrName" >> $GITHUB_ENV
 
       - name: Login to Azure Container Registry
         run: |
@@ -48,13 +46,17 @@ jobs:
         run: |
           repos=$(az acr repository list --name ${{ env.acrName }} --output tsv)
           echo "Repositories found: $repos"
-          # Set repos to an environment variable as newline-separated string
-          echo "$repos" >> $GITHUB_ENV  # Store repositories as newline-separated values
+          # Base64 encode the list of repositories to handle spaces
+          repos_base64=$(echo "$repos" | base64)
+          echo "repos_base64=$repos_base64" >> $GITHUB_ENV  # Store as base64-encoded value
 
       - name: Purge old images from all ACR repositories
         run: |
-          # Read the repos environment variable line by line
-          while IFS= read -r repo; do
+          # Decode the base64-encoded repos string
+          repos=$(echo "${{ env.repos_base64 }}" | base64 --decode)
+          
+          # Loop through the repositories
+          for repo in $repos; do
             echo "Purging old images in repository: $repo"
             # Get all tags for the repository
             tags=$(az acr repository show-tags --name ${{ env.acrName }} --repository "$repo" --output tsv)
@@ -62,4 +64,4 @@ jobs:
               echo "Purging tag $tag from $repo"
               az acr repository delete --name ${{ env.acrName }} --image "$repo:$tag" --yes
             done
-          done < "${{ env.repos }}"
+          done
